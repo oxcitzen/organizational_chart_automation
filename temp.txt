@@ -1,0 +1,90 @@
+    def deep_search(self, slide, target, branch, right_most_coor=0, bottom_most_coor=0):
+        target_id = target['target'][0]
+        target_shape = target['target'][1]
+        offset_x = target_shape.left + Inches(0.1)
+        x_offset_h = target_shape.width / 4
+        gap = 0.95 * target_shape.height  
+        min_child_gap = Inches(0.1)
+        
+        if target_id in branch:
+            subordinates = branch[target_id]
+            total_height_used = 0
+            node_positions = []
+            max_sibling_bottom = bottom_most_coor
+            
+            for i, subordinate in enumerate(subordinates):
+                y_pos = target_shape.top + (1 + 0.95 * (i + total_height_used)) * target_shape.height
+                y_pos = max(y_pos, max_sibling_bottom + min_child_gap)
+                
+                # Store exact connection point (middle of horizontal line)
+                connection_y = y_pos + gap
+                node_positions.append(connection_y)
+                
+                # Horizontal connector (from vertical line to box)
+                slide.shapes.add_connector(
+                    MSO_CONNECTOR.STRAIGHT,
+                    int(offset_x), int(connection_y),
+                    int(offset_x + x_offset_h), int(connection_y)
+                )
+                
+                # Employee box
+                shape = slide.shapes.add_shape(
+                    MSO_SHAPE.RECTANGLE,
+                    int(offset_x + x_offset_h),
+                    int(connection_y - Inches(0.2)),  # Centered vertically
+                    Inches(0.8), Inches(0.4)
+                )
+                
+                # Update coordinates
+                current_right = offset_x + x_offset_h + Inches(0.8)
+                current_bottom = connection_y + Inches(0.2)
+                right_most_coor = max(right_most_coor, current_right)
+                bottom_most_coor = max(bottom_most_coor, current_bottom)
+                max_sibling_bottom = bottom_most_coor
+                
+                # Style the shape
+                text = f"{subordinate['Department']}\n{subordinate['Name']} ({subordinate['Employee ID']})"
+                shape.text_frame.text = text
+                shape.text_frame.paragraphs[0].font.size = Pt(10)
+                shape.text_frame.paragraphs[1].font.size = Pt(10)
+                shape.text_frame.paragraphs[0].font.bold = True
+                shape.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
+                
+                # Recursive processing
+                new_target_id = subordinate['Employee ID']
+                if new_target_id in branch:
+                    first_child_top = connection_y + min_child_gap
+                    required_space = first_child_top - y_pos
+                    if gap < required_space:
+                        y_pos += (required_space - gap)
+                    
+                    subtree_height, right_most_coor, subtree_bottom = self.deep_search(
+                        slide, 
+                        {"target": (new_target_id, shape)}, 
+                        branch, 
+                        right_most_coor,
+                        bottom_most_coor
+                    )
+                    total_height_used += subtree_height
+                    max_sibling_bottom = max(max_sibling_bottom, subtree_bottom)
+                else:
+                    total_height_used += 1
+            
+            # Draw vertical line (EXACTLY between first and last connection points)
+            if node_positions:
+                first_connection = min(node_positions)
+                last_connection = max(node_positions)
+                
+                # Vertical line starts at parent's bottom and ends at last connection
+                parent_bottom = target_shape.top + target_shape.height
+                slide.shapes.add_connector(
+                    MSO_CONNECTOR.STRAIGHT,
+                    int(offset_x), int(parent_bottom),
+                    int(offset_x), int(last_connection)
+                )
+                
+                # Add connection points (now handled by the exact horizontal lines)
+            
+            return len(subordinates) + total_height_used, right_most_coor, max_sibling_bottom
+        
+        return -1, right_most_coor, bottom_most_coor
