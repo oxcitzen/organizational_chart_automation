@@ -88,3 +88,48 @@
             return len(subordinates) + total_height_used, right_most_coor, max_sibling_bottom
         
         return -1, right_most_coor, bottom_most_coor
+
+
+
+def build_hierarchy(df, employee_id, level=1): 
+    """
+    Recursively finds all employees under a given employee ID and assigns a level to them.
+    
+    Args:
+        df (pd.DataFrame): The dataframe containing 'Employee ID' and 'Supervisor ID'.
+        employee_id (int or str): The employee ID from which to start building the hierarchy.
+        level (int): The current hierarchical level (default is 1 for the given employee_id).
+
+    Returns:
+        pd.DataFrame: A dataframe with all original columns plus 'Level', containing only employees under the given employee ID.
+    """
+    hierarchy = []
+    visited = set()
+    root = df[df['Employee ID'] == employee_id].reset_index(drop=True)
+    
+    def recurse(emp_id, lvl):
+        if emp_id in visited:
+            return  # Prevent infinite loop due to circular reference
+        visited.add(emp_id)
+        
+        subordinates = df[df['Supervisor ID'] == emp_id]
+        for _, row in subordinates.iterrows():
+            row_dict = row.to_dict()
+            row_dict['Level'] = lvl
+            hierarchy.append(row_dict)
+            recurse(row['Employee ID'], lvl + 1)
+    
+    # Check if the given employee exists in the dataset
+    if employee_id not in df['Employee ID'].values:
+        return pd.DataFrame(columns=df.columns.tolist() + ['Level'])
+    
+    # Start with the given employee
+    root_employee = df[df['Employee ID'] == employee_id].iloc[0].to_dict()
+    root_employee['Level'] = level
+    hierarchy.append(root_employee)
+    visited.add(employee_id)
+    
+    recurse(employee_id, level + 1)
+    
+    return pd.DataFrame(hierarchy), root
+
