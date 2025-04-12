@@ -108,16 +108,18 @@ def build_hierarchy(df, employee_id, level=1):
     root = df[df['Employee ID'] == employee_id].reset_index(drop=True)
     
     def recurse(emp_id, lvl):
-        if emp_id in visited:
-            return  # Prevent infinite loop due to circular reference
-        visited.add(emp_id)
-        
         subordinates = df[df['Supervisor ID'] == emp_id]
         for _, row in subordinates.iterrows():
+            sub_id = row['Employee ID']
+            if sub_id in visited:
+                continue  # Skip to avoid circular reference
+            
+            visited.add(sub_id)  # Mark this specific subordinate as visited
+            
             row_dict = row.to_dict()
             row_dict['Level'] = lvl
             hierarchy.append(row_dict)
-            recurse(row['Employee ID'], lvl + 1)
+            recurse(sub_id, lvl + 1)
     
     # Check if the given employee exists in the dataset
     if employee_id not in df['Employee ID'].values:
@@ -132,4 +134,5 @@ def build_hierarchy(df, employee_id, level=1):
     recurse(employee_id, level + 1)
     
     return pd.DataFrame(hierarchy), root
+
 
