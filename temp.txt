@@ -1,10 +1,13 @@
-    def deep_search(self, slide, target, branch, right_most_coor=0, bottom_most_coor=0):
+    def deep_search(self, slide, target, branch, right_most_coor=0, bottom_most_coor=0, count=0):
         target_id = target['target'][0]
         target_shape = target['target'][1]
         offset_x = target_shape.left + Inches(0.1)
         x_offset_h = target_shape.width / 4
-        gap = 0.95 * target_shape.height  
+        gap = 0.85 * target_shape.height  
         min_child_gap = Inches(0.1)
+        
+        # Initialize local count for this call
+        local_count = count
         
         if target_id in branch:
             subordinates = branch[target_id]
@@ -13,7 +16,9 @@
             max_sibling_bottom = bottom_most_coor
             
             for i, subordinate in enumerate(subordinates):
-                y_pos = target_shape.top + (1 + 0.95 * (i + total_height_used)) * target_shape.height
+                local_count += 1  # Count this subordinate
+                
+                y_pos = target_shape.top + (1 + 0.85 * (i + total_height_used)) * target_shape.height
                 y_pos = max(y_pos, max_sibling_bottom + min_child_gap)
                 
                 # Store exact connection point (middle of horizontal line)
@@ -32,9 +37,38 @@
                     MSO_SHAPE.RECTANGLE,
                     int(offset_x + x_offset_h),
                     int(connection_y - Inches(0.2)),  # Centered vertically
-                    Inches(0.8), Inches(0.4)
+                    Inches(1), Inches(0.55) # Adjust
                 )
                 
+                triangle_width = Inches(0.25)
+                triangle_height = Inches(0.25)
+                triangle_left = offset_x + x_offset_h
+                triangle_top = connection_y + Inches(0.07)
+                
+                triangle = slide.shapes.add_shape(
+                MSO_SHAPE.RIGHT_TRIANGLE,
+                triangle_left,
+                triangle_top,
+                triangle_width,
+                triangle_height 
+                )
+
+                triangle.rotation = 0
+                triangle.fill.solid()
+                triangle.fill.fore_color.rgb = RGBColor(255, 255, 255)
+                triangle.line.color.rgb = RGBColor(10, 80, 220)
+
+                # Use correct descendant count (including itself)
+                descendant_count = self.get_descendant_count(subordinate['Employee ID'], branch)
+
+                triangle.text_frame.word_wrap = False
+                triangle.text = str(descendant_count)
+                triangle.text_frame.paragraphs[0].font.size = Pt(8.5)
+                triangle.text_frame.paragraphs[0].font.bold = True
+                triangle.text_frame.paragraphs[0].font.color.rgb = RGBColor(10, 80, 110)
+                triangle.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                triangle.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+
                 # Update coordinates
                 current_right = offset_x + x_offset_h + Inches(0.8)
                 current_bottom = connection_y + Inches(0.2)
@@ -45,10 +79,16 @@
                 # Style the shape
                 text = f"{subordinate['Department']}\n{subordinate['Name']} ({subordinate['Employee ID']})"
                 shape.text_frame.text = text
-                shape.text_frame.paragraphs[0].font.size = Pt(10)
-                shape.text_frame.paragraphs[1].font.size = Pt(10)
-                shape.text_frame.paragraphs[0].font.bold = True
-                shape.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
+                shape.text_frame.vertical_anchor = MSO_ANCHOR.TOP  # Vertically center the text
+                
+                for i, paragraph in enumerate(shape.text_frame.paragraphs):
+                    paragraph.alignment = PP_ALIGN.CENTER  # Horizontally center
+                    paragraph.font.size = Pt(10)
+                    paragraph.font.color.rgb = RGBColor(255, 255, 255)
+                    if i == 0:
+                        paragraph.font.bold = True
+                    
+
                 
                 # Recursive processing
                 new_target_id = subordinate['Employee ID']
@@ -58,12 +98,13 @@
                     if gap < required_space:
                         y_pos += (required_space - gap)
                     
-                    subtree_height, right_most_coor, subtree_bottom = self.deep_search(
+                    subtree_height, right_most_coor, subtree_bottom, local_count = self.deep_search(
                         slide, 
                         {"target": (new_target_id, shape)}, 
                         branch, 
                         right_most_coor,
-                        bottom_most_coor
+                        bottom_most_coor,
+                        count=local_count  # Pass the updated count
                     )
                     total_height_used += subtree_height
                     max_sibling_bottom = max(max_sibling_bottom, subtree_bottom)
@@ -72,7 +113,6 @@
             
             # Draw vertical line (EXACTLY between first and last connection points)
             if node_positions:
-                first_connection = min(node_positions)
                 last_connection = max(node_positions)
                 
                 # Vertical line starts at parent's bottom and ends at last connection
@@ -82,57 +122,13 @@
                     int(offset_x), int(parent_bottom),
                     int(offset_x), int(last_connection)
                 )
-                
-                # Add connection points (now handled by the exact horizontal lines)
             
-            return len(subordinates) + total_height_used, right_most_coor, max_sibling_bottom
+            return len(subordinates) + total_height_used, right_most_coor, max_sibling_bottom, local_count
         
-        return -1, right_most_coor, bottom_most_coor
-
-
-
-def build_hierarchy(df, employee_id, level=1): 
-    """
-    Recursively finds all employees under a given employee ID and assigns a level to them.
+        return -1, right_most_coor, bottom_most_coor, local_count
     
-    Args:
-        df (pd.DataFrame): The dataframe containing 'Employee ID' and 'Supervisor ID'.
-        employee_id (int or str): The employee ID from which to start building the hierarchy.
-        level (int): The current hierarchical level (default is 1 for the given employee_id).
-
-    Returns:
-        pd.DataFrame: A dataframe with all original columns plus 'Level', containing only employees under the given employee ID.
-    """
-    hierarchy = []
-    visited = set()
-    root = df[df['Employee ID'] == employee_id].reset_index(drop=True)
-    
-    def recurse(emp_id, lvl):
-        subordinates = df[df['Supervisor ID'] == emp_id]
-        for _, row in subordinates.iterrows():
-            sub_id = row['Employee ID']
-            if sub_id in visited:
-                continue  # Skip to avoid circular reference
-            
-            visited.add(sub_id)  # Mark this specific subordinate as visited
-            
-            row_dict = row.to_dict()
-            row_dict['Level'] = lvl
-            hierarchy.append(row_dict)
-            recurse(sub_id, lvl + 1)
-    
-    # Check if the given employee exists in the dataset
-    if employee_id not in df['Employee ID'].values:
-        return pd.DataFrame(columns=df.columns.tolist() + ['Level'])
-    
-    # Start with the given employee
-    root_employee = df[df['Employee ID'] == employee_id].iloc[0].to_dict()
-    root_employee['Level'] = level
-    hierarchy.append(root_employee)
-    visited.add(employee_id)
-    
-    recurse(employee_id, level + 1)
-    
-    return pd.DataFrame(hierarchy), root
-
+    def get_descendant_count(self, emp_id, branch):
+        if emp_id not in branch:
+            return 1
+        return 1 + sum(self.get_descendant_count(child['Employee ID'], branch) for child in branch[emp_id])
 
